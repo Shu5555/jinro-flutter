@@ -26579,7 +26579,7 @@ Yf(a,b){var s=0,r=A.I(t.N),q,p=2,o=[],n,m,l,k,j,i,h,g,f
 var $async$Yf=A.E(function(c,d){if(c===1){o.push(d)
 s=p}while(true)switch(s){case 0:if(b.length===0){q="\u30a8\u30e9\u30fc: API\u30ad\u30fc\u304c\u8a2d\u5b9a\u3055\u308c\u3066\u3044\u307e\u305b\u3093.\n\u30a2\u30d7\u30ea\u306e\u5b9f\u884c\u6642\u306b --dart-define-from-file=config.json \u3092\u6307\u5b9a\u3057\u3066\u3044\u308b\u304b\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
 s=1
-break}n=A.d2("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key="+b,0,null)
+break}n=A.d2("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="+b,0,null)
 i=t.N
 m=A.Y(["contents",A.c([A.Y(["parts",A.c([A.Y(["text",A.aHT(a)],i,i)],t.m0)],i,t.xW)],t.Ud)],i,t.pQ)
 p=4
