@@ -32,20 +32,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadPlayerData() async {
     try {
-      final routeName = WidgetsBinding.instance.window.defaultRouteName;
-      // In case of empty route name, default to '/'
-      final uri = Uri.parse(routeName.isEmpty ? '/' : routeName);
+      final uri = Uri.base;
 
-      if (uri.path != '/player') {
+      // For Flutter web with hash routing, the path is in the fragment.
+      if (!uri.hasFragment) {
         setState(() {
           _isLoading = false;
-          // Set an error message if the user is not supposed to be here.
+          _errorMessage = '無効な共有URLです。URLに#が含まれていません。';
+        });
+        return;
+      }
+
+      // Parse the fragment which contains the route path and query params.
+      final fragmentUri = Uri.parse(uri.fragment);
+
+      if (fragmentUri.path != '/player') {
+        setState(() {
+          _isLoading = false;
           _errorMessage = 'この画面は共有URLから直接開く必要があります。';
         });
         return;
       }
 
-      final binId = uri.queryParameters['bin'];
+      final binId = fragmentUri.queryParameters['bin'];
 
       if (binId == null || binId.isEmpty) {
         throw Exception('URLに共有ID(bin)が含まれていません。');

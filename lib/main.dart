@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:jinro_flutter/screens/gm_tool_screen.dart';
+import 'package:jinro_flutter/screens/home_screen.dart';
+import 'package:jinro_flutter/screens/lobby_screen.dart';
 import 'package:jinro_flutter/screens/player_screen.dart';
 import 'package:jinro_flutter/screens/random_tool_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,23 +28,36 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
       ),
-      // initialRoute: '/', // Let Flutter handle the initial route from the URL
       onGenerateRoute: (settings) {
-        // Handle initial route with query parameters
         final uri = Uri.parse(settings.name ?? '/');
         final path = uri.path;
 
         switch (path) {
+          case '/lobby':
+            final roomCode = settings.arguments as String?;
+            if (roomCode != null) {
+              return MaterialPageRoute(
+                builder: (context) => LobbyScreen(roomCode: roomCode),
+              );
+            }
+            // Handle error: room code not provided
+            return MaterialPageRoute(
+              builder: (context) => const Scaffold(
+                body: Center(child: Text('部屋番号が渡されませんでした。')),
+              ),
+            );
           case '/player':
             return MaterialPageRoute(
               builder: (context) => const PlayerScreen(),
-              settings: settings, // Pass settings to the new route
+              settings: settings, // Pass settings for backward compatibility
             );
+          case '/gmtool':
+            return MaterialPageRoute(builder: (context) => const GmToolScreen());
           case '/random':
             return MaterialPageRoute(builder: (context) => const RandomToolScreen());
           case '/':
           default:
-            return MaterialPageRoute(builder: (context) => const GmToolScreen());
+            return MaterialPageRoute(builder: (context) => const HomeScreen());
         }
       },
     );

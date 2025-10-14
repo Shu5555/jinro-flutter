@@ -11,6 +11,12 @@ class PlayerAssignment {
     required this.password,
   });
 
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'password': password,
+        'role': role.toJson(),
+      };
+
   // Factory for when we load from the DB with the role joined
   factory PlayerAssignment.fromSupabase(Map<String, dynamic> json) {
     return PlayerAssignment(
