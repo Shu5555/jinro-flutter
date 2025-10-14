@@ -58,10 +58,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
             event: 'survivor_announcement',
             callback: (payload, [ref]) {
               if (mounted) {
-                // For debugging, show the whole payload
-                final message = '告知: $payload';
+                final count = payload['payload']['count']; // Access nested payload
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(message)),
+                  SnackBar(content: Text('現在の生存者数: $count 人')),
                 );
               }
             })
