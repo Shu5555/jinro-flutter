@@ -103,6 +103,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: const Text('GMツールを開く'),
                 ),
+                const SizedBox(height: 24),
+                OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).pushNamed('/role_management');
+                  },
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  child: const Text('役職管理'),
+                ),
               ],
             ),
           ),

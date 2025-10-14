@@ -6,6 +6,7 @@ import 'package:jinro_flutter/services/ai_assistant_service.dart';
 import 'package:jinro_flutter/services/data_service.dart';
 import 'package:jinro_flutter/services/role_assignment_service.dart';
 import 'package:jinro_flutter/services/room_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class GmToolScreen extends StatefulWidget {
@@ -41,12 +42,33 @@ class _GmToolScreenState extends State<GmToolScreen> {
   void initState() {
     super.initState();
     _roleAssignmentService = RoleAssignmentService(RoleService());
+    _loadSavedRoom();
+  }
+
+  Future<void> _loadSavedRoom() async {
+    setState(() => _isLoading = true);
+    final prefs = await SharedPreferences.getInstance();
+    final savedRoomCode = prefs.getString('gm_room_code');
+    if (savedRoomCode != null && savedRoomCode.isNotEmpty) {
+      // Check if the room still exists and is not finished
+      final room = await _roomService.findRoom(savedRoomCode);
+      if (room != null && room['game_state'] != 'FINISHED') {
+        setState(() => _roomCode = savedRoomCode);
+        _subscribeToRoomChanges(savedRoomCode);
+        _showMessage('保存された部屋に自動接続しました: $savedRoomCode');
+      } else {
+        // Clear invalid/finished room from prefs
+        prefs.remove('gm_room_code');
+      }
+    }
+    setState(() => _isLoading = false);
   }
 
   @override
   void dispose() {
     _channel?.unsubscribe();
     _roleCountControllers.forEach((_, controller) => controller.dispose());
+    _victoryReasonController.dispose();
     super.dispose();
   }
 
@@ -56,6 +78,8 @@ class _GmToolScreenState extends State<GmToolScreen> {
     try {
       final roomCode = await _roomService.createRoom();
       final initialData = await _roomService.findRoom(roomCode);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('gm_room_code', roomCode);
       setState(() {
         _roomCode = roomCode;
         _roomData = initialData;
@@ -359,6 +383,169 @@ class _GmToolScreenState extends State<GmToolScreen> {
                       isThreeLine: true,
                     ),
                   ),
+                ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: ElevatedButton(
+            onPressed: _showEndGameDialog,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('ゲームを終了する', style: TextStyle(fontSize: 18)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String? _selectedWinningFaction;
+  final TextEditingController _victoryReasonController = TextEditingController();
+
+  Future<void> _showEndGameDialog() async {
+    _selectedWinningFaction = null; // Reset for new dialog
+    _victoryReasonController.clear();
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('ゲーム終了'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('勝利陣営を選択してください:'),
+                  RadioListTile<String>(
+                    title: const Text('村人陣営'),
+                    value: '村人陣営',
+                    groupValue: _selectedWinningFaction,
+                    onChanged: (value) => setState(() => _selectedWinningFaction = value),
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('人狼陣営'),
+                    value: '人狼陣営',
+                    groupValue: _selectedWinningFaction,
+                    onChanged: (value) => setState(() => _selectedWinningFaction = value),
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('第三陣営'),
+                    value: '第三陣営',
+                    groupValue: _selectedWinningFaction,
+                    onChanged: (value) => setState(() => _selectedWinningFaction = value),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('勝因を記入してください:'),
+                  TextField(
+                    controller: _victoryReasonController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: '例: 人狼が全滅したため',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (_selectedWinningFaction == null || _victoryReasonController.text.isEmpty) {
+                    _showMessage('勝利陣営と勝因をすべて入力してください。', isError: true);
+                    return;
+                  }
+                  Navigator.of(context).pop(); // Close dialog
+                  await _endGame();
+                },
+                child: const Text('ゲームを終了する'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _endGame() async {
+    if (_roomCode == null || _selectedWinningFaction == null) return;
+    setState(() => _isLoading = true);
+    try {
+      await _roomService.endGame(
+        _roomCode!,
+        _selectedWinningFaction!,
+        _victoryReasonController.text,
+      );
+      _showMessage('ゲームを終了しました。');
+    } catch (e) {
+      _showMessage('ゲーム終了処理に失敗しました: ${e.toString()}', isError: true);
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _buildFinishedView() {
+    final winningFaction = _roomData!['winning_faction'] ?? '不明';
+    final victoryReason = _roomData!['victory_reason'] ?? 'なし';
+    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
+    final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
+
+    return Column(
+      children: [
+        Card(
+          margin: const EdgeInsets.all(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('ゲーム終了！', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                Text('勝利陣営: $winningFaction', style: const TextStyle(fontSize: 18)),
+                const SizedBox(height: 5),
+                Text('勝因: $victoryReason', style: const TextStyle(fontSize: 16)),
+              ],
+            ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Text('全プレイヤーの最終情報:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: players.length,
+            itemBuilder: (context, index) {
+              final player = players[index];
+              final assignment = assignments.firstWhere((a) => a['name'] == player['name'], orElse: () => {});
+              final role = Map<String, dynamic>.from(assignment['role'] ?? {});
+              final bool isDead = player['is_dead'] ?? false;
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                child: ListTile(
+                  leading: CircleAvatar(child: Text((index + 1).toString())),
+                  title: Text(player['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('役職: ${role['role_name'] ?? '不明'}'),
+                      Text('陣営: ${role['faction'] ?? '不明'}'),
+                    ],
+                  ),
+                  trailing: Text(isDead ? '死亡' : '生存', style: TextStyle(color: isDead ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),
                 ),
               );
             },

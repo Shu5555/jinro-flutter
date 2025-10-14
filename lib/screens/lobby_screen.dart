@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:jinro_flutter/services/room_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -26,6 +27,33 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void initState() {
     super.initState();
     _subscribeToRoomChanges(widget.roomCode);
+    _loadSavedPlayer();
+  }
+
+  Future<void> _loadSavedPlayer() async {
+    setState(() => _isLoading = true);
+    final prefs = await SharedPreferences.getInstance();
+    final savedPlayerId = prefs.getString('player_id_${widget.roomCode}');
+    final savedPlayerName = prefs.getString('player_name_${widget.roomCode}');
+
+    if (savedPlayerId != null && savedPlayerName != null) {
+      // Check if player still exists in the room (optional, but good for robustness)
+      final room = await _roomService.findRoom(widget.roomCode);
+      final playersInRoom = List<Map<String, dynamic>>.from(room?['players'] ?? []);
+      if (playersInRoom.any((p) => p['id'] == savedPlayerId)) {
+        setState(() {
+          _hasJoined = true;
+          _playerName = savedPlayerName;
+          _playerId = savedPlayerId;
+        });
+        _showMessage('保存されたプレイヤー情報で自動再接続しました。');
+      } else {
+        // Player not found in room, clear saved data
+        prefs.remove('player_id_${widget.roomCode}');
+        prefs.remove('player_name_${widget.roomCode}');
+      }
+    }
+    setState(() => _isLoading = false);
   }
 
   @override
@@ -88,6 +116,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
       // Generate a unique ID for the player
       final playerId = '${DateTime.now().millisecondsSinceEpoch}-${name}';
       await _roomService.addPlayerToRoom(widget.roomCode, playerId, name);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('player_id_${widget.roomCode}', playerId);
+      await prefs.setString('player_name_${widget.roomCode}', name);
       setState(() {
         _hasJoined = true;
         _playerName = name;
@@ -158,7 +189,76 @@ class _LobbyScreenState extends State<LobbyScreen> {
       return _buildRoleView(myAssignment, isDead: isDead);
     }
 
+    if (gameState == 'FINISHED') {
+      // Show game end dialog, but still display role view underneath
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !(_isGameEndDialogShowing ?? false)) {
+          _showGameEndDialog();
+        }
+      });
+      final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
+      final myAssignment = assignments.firstWhere((a) => a['name'] == _playerName, orElse: () => {});
+
+      if (myAssignment.isEmpty) {
+        return _buildWaitingView('役職情報を取得できませんでした。');
+      }
+      return _buildRoleView(myAssignment, isDead: isDead);
+    }
+
     return Text('不明なゲーム状態です: $gameState');
+  }
+
+  bool? _isGameEndDialogShowing = false;
+
+  Future<void> _showGameEndDialog() async {
+    _isGameEndDialogShowing = true;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        final winningFaction = _roomData!['winning_faction'] ?? '不明';
+        final victoryReason = _roomData!['victory_reason'] ?? 'なし';
+        final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
+        final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
+
+        return AlertDialog(
+          title: const Text('ゲーム終了！'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('勝利陣営: $winningFaction', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text('勝因: $victoryReason', style: const TextStyle(fontSize: 16)),
+                const SizedBox(height: 20),
+                const Text('全プレイヤーの最終情報:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                ...players.map((player) {
+                  final assignment = assignments.firstWhere((a) => a['name'] == player['name'], orElse: () => {});
+                  final role = Map<String, dynamic>.from(assignment['role'] ?? {});
+                  final bool isDead = player['is_dead'] ?? false;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: Text(
+                      '${player['name']} (${role['role_name'] ?? '不明'}) - ${isDead ? '死亡' : '生存'}',
+                      style: TextStyle(color: isDead ? Colors.red : Colors.black),
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
+    );
+    _isGameEndDialogShowing = false;
   }
 
   Widget _buildNameInputView() {

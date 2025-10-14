@@ -1,8 +1,5 @@
-import 'package:flutter/material.dart';
-import 'package:jinro_flutter/screens/gm_tool_screen.dart';
-import 'package:jinro_flutter/screens/home_screen.dart';
-import 'package:jinro_flutter/screens/lobby_screen.dart';
 import 'package:jinro_flutter/screens/player_screen.dart';
+import 'package:jinro_flutter/screens/role_management_screen.dart';
 import 'package:jinro_flutter/screens/random_tool_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -11,7 +8,7 @@ void main() async {
 
   await Supabase.initialize(
     url: 'https://odvtupoyrgtsygscvmnv.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kdnR1cG95cmd0c3lnc2N2bW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0MjYwNTMsImV4cCI6MjA3NjAwMjA1M30.mq0_PLP7R_nDQS99nGS2yZIPaBWiEhhl61UytQyN8o8',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kdnR1cGF5cmd0c3lnc2N2bW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0MjYwNTMsImV4cCI6MjA3NjAwMjA1M30.mq0_PLP7R_nDQS99nGS2yZIPaBWiEhhl61YtQyN8o8',
   );
 
   runApp(const MyApp());
@@ -53,6 +50,8 @@ class MyApp extends StatelessWidget {
             );
           case '/gmtool':
             return MaterialPageRoute(builder: (context) => const GmToolScreen());
+          case '/role_management':
+            return MaterialPageRoute(builder: (context) => const RoleManagementScreen());
           case '/random':
             return MaterialPageRoute(builder: (context) => const RandomToolScreen());
           case '/':

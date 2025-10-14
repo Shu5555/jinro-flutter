@@ -123,4 +123,16 @@ class RoomService {
         })
         .eq('room_code', roomCode);
   }
+
+  // End the game by setting winning faction and reason, and updating the state
+  Future<void> endGame(String roomCode, String winningFaction, String victoryReason) async {
+    await _supabase
+        .from('rooms')
+        .update({
+          'game_state': 'FINISHED',
+          'winning_faction': winningFaction,
+          'victory_reason': victoryReason,
+        })
+        .eq('room_code', roomCode);
+  }
 }

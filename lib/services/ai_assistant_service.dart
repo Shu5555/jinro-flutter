@@ -33,7 +33,22 @@ class AiAssistantService {
 
       if (response.statusCode == 200) {
         final responseBody = json.decode(utf8.decode(response.bodyBytes));
-        return responseBody['candidates'][0]['content']['parts'][0]['text'];
+        
+        // Defensive checks for nested structure
+        if (responseBody['candidates'] != null &&
+            responseBody['candidates'].isNotEmpty &&
+            responseBody['candidates'][0]['content'] != null &&
+            responseBody['candidates'][0]['content']['parts'] != null &&
+            responseBody['candidates'][0]['content']['parts'].isNotEmpty &&
+            responseBody['candidates'][0]['content']['parts'][0]['text'] != null) {
+          return responseBody['candidates'][0]['content']['parts'][0]['text'];
+        } else {
+          // Check for safety ratings that might filter content
+          if (responseBody['promptFeedback'] != null && responseBody['promptFeedback']['safetyRatings'] != null) {
+            return 'AIからの応答が安全上の理由でフィルタリングされました。プロンプトの内容を調整してください。\n詳細: ${responseBody['promptFeedback']}';
+          }
+          return 'AIからの応答が空または予期せぬ形式でした。\nレスポンス: ${utf8.decode(response.bodyBytes)}';
+        }
       } else {
         return 'APIエラーが発生しました.\nステータスコード: ${response.statusCode}\nレスポンス: ${utf8.decode(response.bodyBytes)}';
       }
