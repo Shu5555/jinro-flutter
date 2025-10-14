@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:jinro_flutter/models/player_assignment.dart';
+import 'package:jinro_flutter/services/assignment_service.dart';
 import 'package:jinro_flutter/services/data_service.dart';
 import 'package:jinro_flutter/services/role_assignment_service.dart';
 
@@ -23,19 +25,16 @@ class _GmToolScreenState extends State<GmToolScreen> {
   };
 
   late RoleAssignmentService _roleAssignmentService;
-  late JsonBinService _jsonBinService;
+  late AssignmentService _assignmentService;
 
   List<PlayerAssignment> _playerAssignments = [];
   String? _shareableUrl;
-
-  // TODO: Replace with a secure way to manage API keys (e.g., environment variables)
-  final String _jsonBinApiKey = 'YOUR_JSONBIN_API_KEY'; // Placeholder
 
   @override
   void initState() {
     super.initState();
     _roleAssignmentService = RoleAssignmentService(RoleService());
-    _jsonBinService = JsonBinService(apiKey: _jsonBinApiKey);
+    _assignmentService = AssignmentService();
   }
 
   @override
@@ -77,33 +76,15 @@ class _GmToolScreenState extends State<GmToolScreen> {
         _shareableUrl = null; // Reset URL
       });
 
-      // Generate shareable URL
-      final List<Map<String, dynamic>> assignmentsJson = assignments.map((e) => e.toJson()).toList();
-      final String encryptedData = AssignmentEncryptor.encryptAssignments(assignmentsJson);
-
-      if (_jsonBinApiKey == 'YOUR_JSONBIN_API_KEY' || _jsonBinApiKey.isEmpty) {
-        _showMessage('JSONBin.io APIキーが設定されていないため、URL共有機能は利用できません。', isError: true);
-        // Fallback to direct URL encoding if API key is not set
-        // This might hit URL length limits for many players
-        final String encodedData = Uri.encodeComponent(encryptedData);
+      // Generate shareable URL using Supabase
+      try {
+        final String binId = await _assignmentService.saveAssignments(assignments);
         setState(() {
-          _shareableUrl = '${Uri.base.origin}/#/player?data=$encodedData';
+          _shareableUrl = '${Uri.base.origin}/#/player?bin=$binId';
         });
-      } else {
-        try {
-          final String binId = await _jsonBinService.save(encryptedData);
-          setState(() {
-            _shareableUrl = '${Uri.base.origin}/#/player?bin=$binId';
-          });
-          _showMessage('共有URLを生成しました！');
-        } catch (e) {
-          _showMessage('URLの生成中にエラーが発生しました: ${e.toString()}', isError: true);
-          // Fallback to direct URL encoding on JSONBin error
-          final String encodedData = Uri.encodeComponent(encryptedData);
-          setState(() {
-            _shareableUrl = '${Uri.base.origin}/#/player?data=$encodedData';
-          });
-        }
+        _showMessage('共有URLを生成しました！');
+      } catch (e) {
+        _showMessage('URLの生成中にエラーが発生しました: ${e.toString()}', isError: true);
       }
 
       _showMessage('役職割り当てが完了しました！');

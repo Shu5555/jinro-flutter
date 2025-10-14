@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:jinro_flutter/services/data_service.dart';
-import 'package:jinro_flutter/services/role_assignment_service.dart';
+import 'package:jinro_flutter/models/player_assignment.dart';
+import 'package:jinro_flutter/services/assignment_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -16,13 +16,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
-  // TODO: Replace with a secure way to manage API keys (e.g., environment variables)
-  final String _jsonBinApiKey = 'YOUR_JSONBIN_API_KEY'; // Placeholder
-
   @override
   void initState() {
     super.initState();
-    _loadPlayerData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPlayerData();
+    });
   }
 
   @override
@@ -33,30 +32,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadPlayerData() async {
     try {
-      final uri = Uri.parse(WidgetsBinding.instance.window.defaultRouteName);
+      final routeName = WidgetsBinding.instance.window.defaultRouteName;
+      // In case of empty route name, default to '/'
+      final uri = Uri.parse(routeName.isEmpty ? '/' : routeName);
+
+      if (uri.path != '/player') {
+        setState(() {
+          _isLoading = false;
+          // Set an error message if the user is not supposed to be here.
+          _errorMessage = 'この画面は共有URLから直接開く必要があります。';
+        });
+        return;
+      }
+
       final binId = uri.queryParameters['bin'];
-      final encryptedDataParam = uri.queryParameters['data'];
-      String? dataToDecrypt;
 
-      if (binId != null) {
-        if (_jsonBinApiKey == 'YOUR_JSONBIN_API_KEY' || _jsonBinApiKey.isEmpty) {
-          throw Exception('短縮URL機能が無効です。JSONBin APIキーが設定されていません。');
-        }
-        final jsonBinService = JsonBinService(apiKey: _jsonBinApiKey);
-        dataToDecrypt = await jsonBinService.load(binId);
-      } else if (encryptedDataParam != null) {
-        dataToDecrypt = Uri.decodeComponent(encryptedDataParam);
-      } else {
-        throw Exception('URLに役職データが含まれていません。');
+      if (binId == null || binId.isEmpty) {
+        throw Exception('URLに共有ID(bin)が含まれていません。');
       }
 
-      if (dataToDecrypt == null || dataToDecrypt.isEmpty) {
-        throw Exception('復号化するデータがありません。');
-      }
+      final assignmentService = AssignmentService();
+      final assignments = await assignmentService.loadAssignments(binId);
 
-      final List<Map<String, dynamic>> decryptedAssignments = AssignmentEncryptor.decryptAssignments(dataToDecrypt);
       setState(() {
-        _allAssignments = decryptedAssignments.map((e) => PlayerAssignment.fromJson(e)).toList();
+        _allAssignments = assignments;
         _isLoading = false;
       });
     } catch (e) {
@@ -75,15 +74,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    final assignment = _allAssignments!.firstWhere(
-      (a) => a.password == password,
-      orElse: () => throw Exception('合言葉が間違っています。'),
-    );
+    try {
+      final assignment = _allAssignments!.firstWhere(
+        (a) => a.password == password,
+        orElse: () => throw Exception('合言葉が間違っています。'),
+      );
 
-    setState(() {
-      _currentPlayerAssignment = assignment;
-    });
-    _showMessage('${assignment.name}さんの役職を表示しました');
+      setState(() {
+        _currentPlayerAssignment = assignment;
+      });
+      _showMessage('${assignment.name}さんの役職を表示しました');
+    } catch (e) {
+      _showMessage(e.toString(), isError: true);
+    }
   }
 
   void _showMessage(String message, {bool isError = false}) {
@@ -105,7 +108,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)))
+              ? Center(
+                  child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 16)),
+                ))
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16.0),
                   child: _currentPlayerAssignment == null
@@ -179,7 +186,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
           const SizedBox(height: 4.0),
           isMultiline
-              ? Text(value.replaceAll('\n', '\n')) // Handle \n for multiline text
+              ? Text(value) // Removed replaceAll, assuming text is clean
               : Text(value),
         ],
       ),

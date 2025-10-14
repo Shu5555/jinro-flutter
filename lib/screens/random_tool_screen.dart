@@ -1,8 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:jinro_flutter/services/data_service.dart';
-import 'package:jinro_flutter/services/role_assignment_service.dart';
+import 'package:jinro_flutter/models/player_assignment.dart';
+import 'package:jinro_flutter/services/assignment_service.dart';
 
 class RandomToolScreen extends StatefulWidget {
   const RandomToolScreen({super.key});
@@ -20,13 +20,12 @@ class _RandomToolScreenState extends State<RandomToolScreen> {
   String _coinTossResult = '';
   String _probabilityType = 'percent'; // 'percent' or 'fraction'
 
-  // TODO: Replace with a secure way to manage API keys (e.g., environment variables)
-  final String _jsonBinApiKey = 'YOUR_JSONBIN_API_KEY'; // Placeholder
-
   @override
   void initState() {
     super.initState();
-    _loadPlayersFromBin();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPlayersFromBin();
+    });
   }
 
   @override
@@ -39,18 +38,12 @@ class _RandomToolScreenState extends State<RandomToolScreen> {
 
   Future<void> _loadPlayersFromBin() async {
     try {
-      final uri = Uri.parse(WidgetsBinding.instance.window.defaultRouteName);
+      final uri = Uri.base;
       final binId = uri.queryParameters['bin'];
 
-      if (binId != null) {
-        if (_jsonBinApiKey == 'YOUR_JSONBIN_API_KEY' || _jsonBinApiKey.isEmpty) {
-          _showMessage('短縮URL機能が無効です。JSONBin APIキーが設定されていません。', isError: true);
-          return;
-        }
-        final jsonBinService = JsonBinService(apiKey: _jsonBinApiKey);
-        final encryptedData = await jsonBinService.load(binId);
-        final List<Map<String, dynamic>> assignmentsJson = AssignmentEncryptor.decryptAssignments(encryptedData);
-        final List<PlayerAssignment> assignments = assignmentsJson.map((e) => PlayerAssignment.fromJson(e)).toList();
+      if (binId != null && binId.isNotEmpty) {
+        final assignmentService = AssignmentService();
+        final assignments = await assignmentService.loadAssignments(binId);
 
         if (assignments.isNotEmpty) {
           _playerListController.text = assignments.map((a) => a.name).join('\n');

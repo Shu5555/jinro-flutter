@@ -1,50 +1,9 @@
 import 'dart:math';
 import '../models/role.dart';
 import 'data_service.dart'; // For RoleService
+import '../models/player_assignment.dart';
 
-class PlayerAssignment {
-  final String name;
-  final Role role;
-  final String password;
 
-  PlayerAssignment({
-    required this.name,
-    required this.role,
-    required this.password,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'roleName': role.roleName,
-        'faction': role.faction,
-        'ability': role.ability,
-        'fortuneTellingResult': role.fortuneTellingResult,
-        'relatedRole': role.relatedRole,
-        'numberOfRelatedRoles': role.numberOfRelatedRoles,
-        'victoryCondition': role.victoryCondition,
-        'creator': role.creator,
-        'category': role.category,
-        'password': password,
-      };
-
-  factory PlayerAssignment.fromJson(Map<String, dynamic> json) {
-    return PlayerAssignment(
-      name: json['name'] as String,
-      role: Role(
-        roleName: json['roleName'] as String,
-        faction: json['faction'] as String,
-        ability: json['ability'] as String,
-        fortuneTellingResult: json['fortuneTellingResult'] as String,
-        relatedRole: json['relatedRole'] as String,
-        numberOfRelatedRoles: json['numberOfRelatedRoles'] as String,
-        victoryCondition: json['victoryCondition'] as String,
-        creator: json['creator'] as String,
-        category: json['category'] as String,
-      ),
-      password: json['password'] as String,
-    );
-  }
-}
 
 class RoleAssignmentService {
   final RoleService _roleService;

@@ -1,29 +1,38 @@
+
 import 'package:json_annotation/json_annotation.dart';
 
 part 'role.g.dart';
 
 @JsonSerializable()
 class Role {
-  @JsonKey(name: '役職名')
+  final int id;
+
+  @JsonKey(name: 'role_name')
   final String roleName;
-  @JsonKey(name: '陣営')
+
   final String faction;
-  @JsonKey(name: '能力')
   final String ability;
-  @JsonKey(name: '占い結果')
+
+  @JsonKey(name: 'fortune_telling_result')
   final String fortuneTellingResult;
-  @JsonKey(name: '関連役職')
+
+  @JsonKey(name: 'related_role', defaultValue: '')
   final String relatedRole;
-  @JsonKey(name: '関連役職人数')
+
+  @JsonKey(name: 'number_of_related_roles', defaultValue: '0')
   final String numberOfRelatedRoles;
-  @JsonKey(name: '勝利条件')
+
+  @JsonKey(name: 'victory_condition', defaultValue: '')
   final String victoryCondition;
-  @JsonKey(name: '制作者')
+
+  @JsonKey(defaultValue: '')
   final String creator;
-  @JsonKey(name: '分類', defaultValue: '')
+
+  @JsonKey(defaultValue: '')
   final String category;
 
   Role({
+    required this.id,
     required this.roleName,
     required this.faction,
     required this.ability,
