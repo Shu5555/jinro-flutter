@@ -58,9 +58,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
             event: 'survivor_announcement',
             callback: (payload, [ref]) {
               if (mounted) {
-                final count = payload['count'];
+                // For debugging, show the whole payload
+                final message = '告知: $payload';
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('現在の生存者数: $count 人')),
+                  SnackBar(content: Text(message)),
                 );
               }
             })
@@ -139,12 +140,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
       return _buildWaitingView('部屋の情報を取得中...');
     }
 
-    // Check if this player is dead
     final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
     final self = players.firstWhere((p) => p['id'] == _playerId, orElse: () => {});
-    if (self['is_dead'] == true) {
-      return _buildDeadView();
-    }
+    final bool isDead = self['is_dead'] == true;
 
     final gameState = _roomData!['game_state'];
     if (gameState == 'LOBBY' || gameState == 'CONFIG') {
@@ -158,7 +156,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
       if (myAssignment.isEmpty) {
         return _buildWaitingView('役職情報を取得できませんでした。');
       }
-      return _buildRoleView(myAssignment);
+      return _buildRoleView(myAssignment, isDead: isDead);
     }
 
     return Text('不明なゲーム状態です: $gameState');
@@ -202,20 +200,40 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  Widget _buildDeadView() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.cancel, color: Colors.red, size: 80),
-          SizedBox(height: 24),
-          Text('あなたは死亡しました', style: TextStyle(fontSize: 24, color: Colors.red, fontWeight: FontWeight.bold)),
-        ],
+  Widget _buildRoleView(Map<String, dynamic> assignment, {required bool isDead}) {
+    final role = Map<String, dynamic>.from(assignment['role'] ?? {});
+    if (role.isEmpty) return const Text('役職データがありません。');
+
+    return Opacity(
+      opacity: isDead ? 0.5 : 1.0,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (isDead)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 16.0),
+                  child: Text(
+                    'あなたは死亡しました',
+                    style: TextStyle(fontSize: 24, color: Colors.red, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            Text(
+              'プレイヤー名: ${assignment['name']}',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16.0),
+            _buildRoleDetailRow('役職', role['role_name'] ?? ''),
+            _buildRoleDetailRow('陣営', role['faction'] ?? ''),
+            _buildRoleDetailRow('勝利条件', role['victory_condition'] ?? '', isMultiline: true),
+            _buildRoleDetailRow('能力', role['ability'] ?? '', isMultiline: true),
+          ],
+        ),
       ),
     );
-  }
 
-  Widget _buildRoleView(Map<String, dynamic> assignment) {
     final role = Map<String, dynamic>.from(assignment['role'] ?? {});
     if (role.isEmpty) return const Text('役職データがありません。');
 
