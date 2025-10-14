@@ -233,26 +233,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
         ),
       ),
     );
-
-    final role = Map<String, dynamic>.from(assignment['role'] ?? {});
-    if (role.isEmpty) return const Text('役職データがありません。');
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'プレイヤー名: ${assignment['name']}',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 16.0),
-          _buildRoleDetailRow('役職', role['role_name'] ?? ''),
-          _buildRoleDetailRow('陣営', role['faction'] ?? ''),
-          _buildRoleDetailRow('勝利条件', role['victory_condition'] ?? '', isMultiline: true),
-          _buildRoleDetailRow('能力', role['ability'] ?? '', isMultiline: true),
-        ],
-      ),
-    );
   }
 
   Widget _buildRoleDetailRow(String label, String value, {bool isMultiline = false}) {
