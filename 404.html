@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Redirecting...</title>
+    <script>
+      // Store the full path that led to the 404 page in session storage.
+      // The path will be like "/jinro-flutter/player?bin=..."
+      const path = location.pathname + location.search;
+      sessionStorage.redirect = path;
+      // Redirect to the base of the site.
+      location.href = '/' + location.pathname.split('/')[1]; // e.g., /jinro-flutter/
+    </script>
+  </head>
+  <body>
+    If you are not redirected automatically, please click the link to go back to the homepage.
+  </body>
+</html>
