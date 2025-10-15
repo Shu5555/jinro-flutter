@@ -29,4 +29,13 @@ class RoleService {
 
     return roles;
   }
+
+  Future<List<Role>> loadAllRoles() async {
+    List<Role> allRoles = [];
+    allRoles.addAll(await loadRoles('villager'));
+    allRoles.addAll(await loadRoles('murder'));
+    allRoles.addAll(await loadRoles('3rd'));
+    allRoles.addAll(await loadRoles('custom')); // Loads custom roles from Supabase
+    return allRoles;
+  }
 }
