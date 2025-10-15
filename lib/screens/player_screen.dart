@@ -195,8 +195,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
           const SizedBox(height: 4.0),
           isMultiline
-              ? Text(value) // Removed replaceAll, assuming text is clean
-              : Text(value),
+              ? SelectableText(value) // Removed replaceAll, assuming text is clean
+              : SelectableText(value),
         ],
       ),
     );

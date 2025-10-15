@@ -541,8 +541,8 @@ class _GmToolScreenState extends State<GmToolScreen> {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('役職: ${role['role_name'] ?? '不明'}'),
-                      Text('陣営: ${role['faction'] ?? '不明'}'),
+                      SelectableText('役職: ${role['role_name'] ?? '不明'}'),
+                      SelectableText('陣営: ${role['faction'] ?? '不明'}'),
                     ],
                   ),
                   trailing: Text(isDead ? '死亡' : '生存', style: TextStyle(color: isDead ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),

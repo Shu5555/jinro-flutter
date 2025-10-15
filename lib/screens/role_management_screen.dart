@@ -102,18 +102,9 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
         title: const Text('役職管理'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+      body: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildAddRoleForm(),
-                  const Divider(height: 32),
-                  _buildCustomRolesList(),
-                ],
-              ),
+              child: _buildAddRoleForm(),
             ),
     );
   }
