@@ -1,20 +1,21 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:jinro_flutter/services/room_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:jinro_flutter/providers/room_repository_provider.dart';
+import 'package:jinro_flutter/providers/room_service_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class LobbyScreen extends StatefulWidget {
+class LobbyScreen extends ConsumerStatefulWidget {
   final String roomCode;
   const LobbyScreen({super.key, required this.roomCode});
 
   @override
-  State<LobbyScreen> createState() => _LobbyScreenState();
+  ConsumerState<LobbyScreen> createState() => _LobbyScreenState();
 }
 
-class _LobbyScreenState extends State<LobbyScreen> {
+class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   final _nameController = TextEditingController();
-  final _roomService = RoomService();
   bool _isLoading = false;
   bool _hasJoined = false;
   String _playerName = '';
@@ -37,8 +38,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final savedPlayerName = prefs.getString('player_name_${widget.roomCode}');
 
     if (savedPlayerId != null && savedPlayerName != null) {
-      // Check if player still exists in the room (optional, but good for robustness)
-      final room = await _roomService.findRoom(widget.roomCode);
+      final room = await ref.read(roomRepositoryProvider).findRoom(widget.roomCode);
       final playersInRoom = List<Map<String, dynamic>>.from(room?['players'] ?? []);
       if (playersInRoom.any((p) => p['id'] == savedPlayerId)) {
         setState(() {
@@ -48,7 +48,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
         });
         _showMessage('保存されたプレイヤー情報で自動再接続しました。');
       } else {
-        // Player not found in room, clear saved data
         prefs.remove('player_id_${widget.roomCode}');
         prefs.remove('player_name_${widget.roomCode}');
       }
@@ -64,7 +63,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   void _subscribeToRoomChanges(String roomCode) {
-    _channel = _roomService.getRoomChannel(roomCode);
+    final roomService = ref.read(roomServiceProvider);
+    _channel = roomService.getRoomChannel(roomCode);
     _channel!
         .onPostgresChanges(
             event: PostgresChangeEvent.update,
@@ -86,7 +86,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
             event: 'survivor_announcement',
             callback: (payload, [ref]) {
               if (mounted) {
-                final count = payload['payload']['count']; // Access nested payload
+                final count = payload['count'];
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('現在の生存者数: $count 人')),
                 );
@@ -94,7 +94,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
             })
         .subscribe((status, [ref]) async {
       if (status == 'SUBSCRIBED') {
-        final initialData = await _roomService.findRoom(roomCode);
+        final initialData = await this.ref.read(roomRepositoryProvider).findRoom(roomCode);
         if (mounted) {
           setState(() {
             _roomData = initialData;
@@ -113,9 +113,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
     setState(() => _isLoading = true);
     try {
-      // Generate a unique ID for the player
       final playerId = '${DateTime.now().millisecondsSinceEpoch}-${name}';
-      await _roomService.addPlayerToRoom(widget.roomCode, playerId, name);
+      await ref.read(roomRepositoryProvider).addPlayerToRoom(widget.roomCode, playerId, name);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('player_id_${widget.roomCode}', playerId);
       await prefs.setString('player_name_${widget.roomCode}', name);

@@ -6,6 +6,7 @@ import 'package:jinro_flutter/providers/room_service_provider.dart';
 import 'package:jinro_flutter/providers/role_assignment_service_provider.dart';
 import 'package:jinro_flutter/services/ai_assistant_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // This will hold the state of the GM Tool Screen
 class GmToolScreenState {
@@ -37,19 +38,18 @@ class GmToolScreenState {
 }
 
 class GmToolScreenController extends StateNotifier<GmToolScreenState> {
-  GmToolScreenController(this._read) : super(GmToolScreenState()) {
-    // Cancel the subscription when the controller is disposed
-    ref.onDispose(() {
+  GmToolScreenController(this._ref) : super(GmToolScreenState()) {
+    _ref.onDispose(() {
       _channel?.unsubscribe();
     });
   }
 
-  final Reader _read;
+  final Ref _ref;
   RealtimeChannel? _channel;
 
   void _subscribeToRoomChanges(String roomCode) {
     _channel?.unsubscribe(); // Unsubscribe from any previous channel
-    final roomService = _read(roomServiceProvider);
+    final roomService = _ref.read(roomServiceProvider);
     _channel = roomService.getRoomChannel(roomCode);
     _channel!.onPostgresChanges(
         event: PostgresChangeEvent.all,
@@ -71,14 +71,12 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
   Future<void> createRoom() async {
     state = state.copyWith(isLoading: true, eventState: const AsyncValue.loading());
     try {
-      // We use the repository to create the room now
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       final roomCode = await roomRepository.createRoom();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('gm_room_code', roomCode);
 
-      // Fetch initial data
       final initialData = await roomRepository.findRoom(roomCode);
 
       state = state.copyWith(
@@ -88,9 +86,6 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
         eventState: const AsyncValue.data(null),
       );
       _subscribeToRoomChanges(roomCode);
-      
-      // It's better to handle subscription in the UI or a dedicated service
-      // For now, we focus on state management
 
     } catch (e, st) {
       state = state.copyWith(isLoading: false, eventState: AsyncValue.error(e, st));
@@ -102,7 +97,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
     final prefs = await SharedPreferences.getInstance();
     final savedRoomCode = prefs.getString('gm_room_code');
     if (savedRoomCode != null && savedRoomCode.isNotEmpty) {
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       final room = await roomRepository.findRoom(savedRoomCode);
       if (room != null && room['game_state'] != 'FINISHED') {
         state = state.copyWith(
@@ -116,6 +111,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
         state = state.copyWith(isLoading: false);
       }
     } else {
+      state = state.copyWith(isLoading: false);
     }
   }
 
@@ -123,9 +119,8 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
     if (state.roomCode == null) return;
     state = state.copyWith(eventState: const AsyncValue.loading());
     try {
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       await roomRepository.updateGameState(state.roomCode!, newState);
-      // The UI will update automatically via the real-time subscription
       state = state.copyWith(eventState: const AsyncValue.data(null));
     } catch (e, st) {
       state = state.copyWith(eventState: AsyncValue.error(e, st));
@@ -146,11 +141,11 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
 
     state = state.copyWith(eventState: const AsyncValue.loading());
     try {
-      final roleAssignmentService = _read(roleAssignmentServiceProvider);
+      final roleAssignmentService = _ref.read(roleAssignmentServiceProvider);
       final assignments = await roleAssignmentService.assignRoles(participants, counts);
       final assignmentsJson = assignments.map((a) => a.toJson()).toList();
 
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       await roomRepository.startGame(state.roomCode!, assignmentsJson);
 
       state = state.copyWith(eventState: const AsyncValue.data(null));
@@ -163,7 +158,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
     if (state.roomCode == null) return;
     state = state.copyWith(eventState: const AsyncValue.loading());
     try {
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       await roomRepository.setPlayerDeadStatus(state.roomCode!, playerId, isDead);
       state = state.copyWith(eventState: const AsyncValue.data(null));
     } catch (e, st) {
@@ -178,7 +173,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
 
     state = state.copyWith(eventState: const AsyncValue.loading());
     try {
-      final roomService = _read(roomServiceProvider);
+      final roomService = _ref.read(roomServiceProvider);
       await roomService.broadcastSurvivorCount(state.roomCode!, survivorCount);
       state = state.copyWith(eventState: const AsyncValue.data(null));
     } catch (e, st) {
@@ -203,7 +198,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
     if (state.roomCode == null) return;
     state = state.copyWith(eventState: const AsyncValue.loading());
     try {
-      final roomRepository = _read(roomRepositoryProvider);
+      final roomRepository = _ref.read(roomRepositoryProvider);
       await roomRepository.endGame(state.roomCode!, winningFaction, victoryReason);
       state = state.copyWith(eventState: const AsyncValue.data(null));
     } catch (e, st) {
@@ -212,6 +207,7 @@ class GmToolScreenController extends StateNotifier<GmToolScreenState> {
   }
 }
 
-final gmToolScreenControllerProvider = StateNotifierProvider<GmToolScreenController, GmToolScreenState>((ref) {
-  return GmToolScreenController(ref.read);
+final gmToolScreenControllerProvider = StateNotifierProvider.autoDispose<GmToolScreenController, GmToolScreenState>((ref) {
+  return GmToolScreenController(ref);
 });
+

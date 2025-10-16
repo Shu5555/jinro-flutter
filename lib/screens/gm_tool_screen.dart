@@ -1,15 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:jinro_flutter/providers/gm_tool_screen_controller_provider.dart';
-import 'package:jinro_flutter/services/ai_assistant_service.dart';
-import 'package:jinro_flutter/services/data_service.dart';
-import 'package:jinro_flutter/services/role_assignment_service.dart';
-import 'package:jinro_flutter/services/room_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
-import 'package:jinro_flutter/models/player_assignment.dart';
-
 
 class GmToolScreen extends ConsumerStatefulWidget {
   const GmToolScreen({super.key});
@@ -34,7 +26,9 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
   void initState() {
     super.initState();
     // Load the saved room when the widget is first built
-    ref.read(gmToolScreenControllerProvider.notifier).loadSavedRoom();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(gmToolScreenControllerProvider.notifier).loadSavedRoom();
+    });
   }
 
   @override
@@ -67,7 +61,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
           ? const Center(child: CircularProgressIndicator())
           : controller.roomCode == null
               ? _buildCreateRoomView(context, notifier)
-              : _buildRoomView(context, controller), // This will need more refactoring
+              : _buildRoomView(context, controller, notifier),
     );
   }
 
@@ -81,19 +75,20 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
     );
   }
 
-  Widget _buildRoomView(BuildContext context, GmToolScreenState controller) {
+  Widget _buildRoomView(BuildContext context, GmToolScreenState controller, GmToolScreenController notifier) {
     final roomData = controller.roomData;
     if (roomData == null) return const Center(child: CircularProgressIndicator());
     final gameState = roomData['game_state'];
     switch (gameState) {
-      case 'LOBBY': return _buildLobbyView(context, controller);
-      case 'CONFIG': return _buildConfigView(context, controller);
-      case 'PLAYING': return _buildPlayingView(context, controller);
+      case 'LOBBY': return _buildLobbyView(context, controller, notifier);
+      case 'CONFIG': return _buildConfigView(context, controller, notifier);
+      case 'PLAYING': return _buildPlayingView(context, controller, notifier);
+      case 'FINISHED': return _buildFinishedView(context, controller.roomData!);
       default: return Center(child: Text('不明なゲーム状態です: $gameState'));
     }
   }
 
-  Widget _buildLobbyView(BuildContext context, GmToolScreenState controller) {
+  Widget _buildLobbyView(BuildContext context, GmToolScreenState controller, GmToolScreenController notifier) {
     final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -128,7 +123,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
     );
   }
 
-  Widget _buildConfigView(BuildContext context, GmToolScreenState controller) {
+  Widget _buildConfigView(BuildContext context, GmToolScreenState controller, GmToolScreenController notifier) {
     final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -155,7 +150,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
                 final counts = _roleCountControllers.map((key, controller) {
                   return MapEntry(key, int.tryParse(controller.text) ?? 0);
                 });
-                ref.read(gmToolScreenControllerProvider.notifier).assignRolesAndStartGame(counts);
+                notifier.assignRolesAndStartGame(counts);
               },
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               child: const Text('ゲーム開始', style: TextStyle(fontSize: 18)),
@@ -166,7 +161,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
     );
   }
 
-  Widget _buildPlayingView(BuildContext context, GmToolScreenState controller) {
+  Widget _buildPlayingView(BuildContext context, GmToolScreenState controller, GmToolScreenController notifier) {
     final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
     final assignments = List<Map<String, dynamic>>.from(controller.roomData!['assignments'] ?? []);
 
@@ -180,7 +175,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () => ref.read(gmToolScreenControllerProvider.notifier).broadcastSurvivorCount(),
+                  onPressed: () => notifier.broadcastSurvivorCount(),
                   icon: const Icon(Icons.campaign),
                   label: const Text('生存者数を告知'),
                 ),
@@ -217,7 +212,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
                       title: Text(player['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       subtitle: Text('役職: ${role['role_name'] ?? '不明'}'),
                       trailing: ElevatedButton(
-                        onPressed: () => ref.read(gmToolScreenControllerProvider.notifier).setPlayerDeadStatus(player['id'], !isDead),
+                        onPressed: () => notifier.setPlayerDeadStatus(player['id'], !isDead),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isDead ? Colors.blue : Colors.red,
                         ),
@@ -333,8 +328,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
   String? _selectedWinningFaction;
   final TextEditingController _victoryReasonController = TextEditingController();
 
-  Future<void> _showEndGameDialog() async {
-  Widget _buildFinishedView(Map<String, dynamic> roomData) {
+  Widget _buildFinishedView(BuildContext context, Map<String, dynamic> roomData) {
     final winningFaction = roomData['winning_faction'] ?? '不明';
     final victoryReason = roomData['victory_reason'] ?? '理由がありません';
     final assignments = List<Map<String, dynamic>>.from(roomData['assignments'] ?? []);
@@ -367,8 +361,8 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
               itemCount: assignments.length,
               itemBuilder: (context, index) {
                 final assignment = assignments[index];
-                final playerName = assignment['player_name'] ?? '不明';
-                final roleName = assignment['role_name'] ?? '不明';
+                final playerName = assignment['name'] ?? '不明';
+                final roleName = (assignment['role'] as Map<String, dynamic>)['role_name'] ?? '不明';
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 4.0),
                   child: ListTile(
@@ -384,6 +378,7 @@ class _GmToolScreenState extends ConsumerState<GmToolScreen> {
     );
   }
 
+  Future<void> _showEndGameDialog() async {
     _selectedWinningFaction = null; // Reset for new dialog
     _victoryReasonController.clear();
 
