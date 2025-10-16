@@ -9,11 +9,42 @@ class RoleService {
   Future<List<Role>> loadRoles(String category) async {
     List<Role> roles = [];
 
+    // --- Key mapping for local JSON files ---
+    const keyMap = {
+      '役職名': 'role_name',
+      '陣営': 'faction',
+      '分類': 'category',
+      '能力': 'ability',
+      '占い結果': 'fortune_telling_result',
+      '関連役職': 'related_role',
+      '関連役職人数': 'number_of_related_roles',
+      '勝利条件': 'victory_condition',
+      '制作者': 'creator',
+    };
+
     // Load roles from asset JSON files
     if (category != 'custom') { // Only load from assets if not specifically requesting custom roles
       final jsonString = await rootBundle.loadString('assets/$category-roles.json');
       final List<dynamic> jsonList = json.decode(jsonString);
-      roles.addAll(jsonList.map((json) => Role.fromJson(json)).toList());
+
+      int idCounter = 0; // Counter for generating temporary IDs
+
+      final transformedList = jsonList.map((role) {
+        final newRole = <String, dynamic>{};
+        role.forEach((key, value) {
+          if (keyMap.containsKey(key)) {
+            newRole[keyMap[key]!] = value;
+          } else {
+            newRole[key] = value; // Keep other keys if any
+          }
+        });
+        // Add a temporary ID to prevent crashes.
+        // The ID is based on category and a counter to ensure uniqueness.
+        newRole['id'] = '${category.hashCode}_${idCounter++}'.hashCode;
+        return newRole;
+      }).toList();
+
+      roles.addAll(transformedList.map((json) => Role.fromJson(json)).toList());
     }
 
     // Load custom roles from Supabase

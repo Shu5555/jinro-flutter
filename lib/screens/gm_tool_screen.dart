@@ -1,32 +1,24 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:jinro_flutter/models/player_assignment.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:jinro_flutter/providers/gm_tool_screen_controller_provider.dart';
 import 'package:jinro_flutter/services/ai_assistant_service.dart';
 import 'package:jinro_flutter/services/data_service.dart';
 import 'package:jinro_flutter/services/role_assignment_service.dart';
 import 'package:jinro_flutter/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:jinro_flutter/models/player_assignment.dart';
 
-class GmToolScreen extends StatefulWidget {
+
+class GmToolScreen extends ConsumerStatefulWidget {
   const GmToolScreen({super.key});
 
   @override
-  State<GmToolScreen> createState() => _GmToolScreenState();
+  ConsumerState<GmToolScreen> createState() => _GmToolScreenState();
 }
 
-class _GmToolScreenState extends State<GmToolScreen> {
-  // Services
-  final _roomService = RoomService();
-  late RoleAssignmentService _roleAssignmentService;
-
-  // State
-  String? _roomCode;
-  Map<String, dynamic>? _roomData;
-  RealtimeChannel? _channel;
-  bool _isLoading = false;
-
+class _GmToolScreenState extends ConsumerState<GmToolScreen> {
   // Role Count Controllers
   final Map<String, TextEditingController> _roleCountControllers = {
     'fortuneTeller': TextEditingController(text: '0'),
@@ -41,210 +33,74 @@ class _GmToolScreenState extends State<GmToolScreen> {
   @override
   void initState() {
     super.initState();
-    _roleAssignmentService = RoleAssignmentService(RoleService());
-    _loadSavedRoom();
-  }
-
-  Future<void> _loadSavedRoom() async {
-    setState(() => _isLoading = true);
-    final prefs = await SharedPreferences.getInstance();
-    final savedRoomCode = prefs.getString('gm_room_code');
-    if (savedRoomCode != null && savedRoomCode.isNotEmpty) {
-      // Check if the room still exists and is not finished
-      final room = await _roomService.findRoom(savedRoomCode);
-      if (room != null && room['game_state'] != 'FINISHED') {
-        setState(() => _roomCode = savedRoomCode);
-        _subscribeToRoomChanges(savedRoomCode);
-        _showMessage('保存された部屋に自動接続しました: $savedRoomCode');
-      } else {
-        // Clear invalid/finished room from prefs
-        prefs.remove('gm_room_code');
-      }
-    }
-    setState(() => _isLoading = false);
+    // Load the saved room when the widget is first built
+    ref.read(gmToolScreenControllerProvider.notifier).loadSavedRoom();
   }
 
   @override
   void dispose() {
-    _channel?.unsubscribe();
     _roleCountControllers.forEach((_, controller) => controller.dispose());
     _victoryReasonController.dispose();
     super.dispose();
   }
 
-  // Room & Game State Management
-  Future<void> _createRoom() async {
-    setState(() => _isLoading = true);
-    try {
-      final roomCode = await _roomService.createRoom();
-      final initialData = await _roomService.findRoom(roomCode);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('gm_room_code', roomCode);
-      setState(() {
-        _roomCode = roomCode;
-        _roomData = initialData;
-      });
-      _subscribeToRoomChanges(roomCode);
-    } catch (e) {
-      _showMessage('部屋の作成に失敗しました: ${e.toString()}', isError: true);
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  void _subscribeToRoomChanges(String roomCode) {
-    _channel = _roomService.getRoomChannel(roomCode);
-    _channel!
-        .onPostgresChanges(
-            event: PostgresChangeEvent.update,
-            schema: 'public',
-            table: 'rooms',
-            filter: PostgresChangeFilter(
-              type: PostgresChangeFilterType.eq,
-              column: 'room_code',
-              value: roomCode,
-            ),
-            callback: (payload) {
-              if (mounted) setState(() => _roomData = payload.newRecord);
-            })
-        .subscribe((status, [ref]) async {
-      if (status == 'SUBSCRIBED') {
-        final initialData = await _roomService.findRoom(roomCode);
-        if (mounted) setState(() => _roomData = initialData);
-      }
-    });
-  }
-
-  Future<void> _changeGameState(String newState) async {
-    if (_roomCode == null) return;
-    setState(() => _isLoading = true);
-    try {
-      await _roomService.updateGameState(_roomCode!, newState);
-    } catch (e) {
-      _showMessage('ゲーム状態の更新に失敗しました: ${e.toString()}', isError: true);
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _assignRolesAndStartGame() async {
-    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
-    final participants = players.map((p) => p['name'] as String).toList();
-
-    final Map<String, int> counts = {};
-    _roleCountControllers.forEach((key, controller) {
-      counts[key] = int.tryParse(controller.text) ?? 0;
-    });
-
-    final int totalRolesCount = counts.values.fold(0, (sum, count) => sum + count);
-
-    if (participants.isEmpty || participants.length != totalRolesCount) {
-      _showMessage('参加者数 (${participants.length}) と役職合計 ($totalRolesCount) が一致しません。', isError: true);
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final List<PlayerAssignment> assignments = await _roleAssignmentService.assignRoles(participants, counts);
-      final assignmentsJson = assignments.map((a) => a.toJson()).toList();
-      await _roomService.startGame(_roomCode!, assignmentsJson);
-    } catch (e) {
-      _showMessage('ゲーム開始に失敗: ${e.toString()}', isError: true);
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _showAiAdvice() async {
-    final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
-    if (assignments.isEmpty) {
-      _showMessage('役職割り当て情報がなく、アドバイスを生成できません。', isError: true);
-      return;
-    }
-
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        title: Text('AIがアドバイスを生成中...'),
-        content: Center(child: CircularProgressIndicator()),
-      ),
-    );
-
-    try {
-      const apiKey = String.fromEnvironment('GEMINI_API_KEY');
-      final advice = await AiAssistantService.generateProgressionAdvice(assignments, apiKey);
-
-      // Pop loading dialog
-      if (mounted) Navigator.of(context).pop();
-
-      // Show result dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('AI進行アシスタント'),
-          content: SingleChildScrollView(child: Text(advice)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('閉じる'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      // Pop loading dialog on error
-      if (mounted) Navigator.of(context).pop();
-      _showMessage('AIアドバイスの生成に失敗しました: ${e.toString()}', isError: true);
-    }
-  }
-
-  // UI Build Methods
   @override
   Widget build(BuildContext context) {
+    final controller = ref.watch(gmToolScreenControllerProvider);
+    final notifier = ref.read(gmToolScreenControllerProvider.notifier);
+
+    ref.listen<GmToolScreenState>(gmToolScreenControllerProvider, (previous, next) {
+      if (next.eventState is AsyncError) {
+        final error = next.eventState as AsyncError;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラーが発生しました: ${error.error}'), backgroundColor: Colors.red),
+        );
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('GMツール'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: _isLoading
+      body: controller.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _roomCode == null
-              ? _buildCreateRoomView()
-              : _buildRoomView(),
+          : controller.roomCode == null
+              ? _buildCreateRoomView(context, notifier)
+              : _buildRoomView(context, controller), // This will need more refactoring
     );
   }
 
-  Widget _buildCreateRoomView() {
+  Widget _buildCreateRoomView(BuildContext context, GmToolScreenController notifier) {
     return Center(
       child: ElevatedButton(
-        onPressed: _createRoom,
+        onPressed: () => notifier.createRoom(),
         style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20)),
         child: const Text('新しい部屋を作成する', style: TextStyle(fontSize: 18)),
       ),
     );
   }
 
-  Widget _buildRoomView() {
-    if (_roomData == null) return const Center(child: CircularProgressIndicator());
-    final gameState = _roomData!['game_state'];
+  Widget _buildRoomView(BuildContext context, GmToolScreenState controller) {
+    final roomData = controller.roomData;
+    if (roomData == null) return const Center(child: CircularProgressIndicator());
+    final gameState = roomData['game_state'];
     switch (gameState) {
-      case 'LOBBY': return _buildLobbyView();
-      case 'CONFIG': return _buildConfigView();
-      case 'PLAYING': return _buildPlayingView();
+      case 'LOBBY': return _buildLobbyView(context, controller);
+      case 'CONFIG': return _buildConfigView(context, controller);
+      case 'PLAYING': return _buildPlayingView(context, controller);
       default: return Center(child: Text('不明なゲーム状態です: $gameState'));
     }
   }
 
-  Widget _buildLobbyView() {
-    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
+  Widget _buildLobbyView(BuildContext context, GmToolScreenState controller) {
+    final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildRoomCodeCard(),
+          _buildRoomCodeCard(context, controller.roomCode!),
           const SizedBox(height: 24),
           Text('参加者 (${players.length}人)', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
@@ -263,7 +119,7 @@ class _GmToolScreenState extends State<GmToolScreen> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: () => _changeGameState('CONFIG'),
+            onPressed: () => notifier.changeGameState('CONFIG'),
             style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.red, foregroundColor: Colors.white),
             child: const Text('参加受付を終了して設定に進む', style: TextStyle(fontSize: 16)),
           ),
@@ -272,8 +128,8 @@ class _GmToolScreenState extends State<GmToolScreen> {
     );
   }
 
-  Widget _buildConfigView() {
-    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
+  Widget _buildConfigView(BuildContext context, GmToolScreenState controller) {
+    final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -295,7 +151,12 @@ class _GmToolScreenState extends State<GmToolScreen> {
           const SizedBox(height: 24.0),
           Center(
             child: ElevatedButton(
-              onPressed: _assignRolesAndStartGame,
+              onPressed: () {
+                final counts = _roleCountControllers.map((key, controller) {
+                  return MapEntry(key, int.tryParse(controller.text) ?? 0);
+                });
+                ref.read(gmToolScreenControllerProvider.notifier).assignRolesAndStartGame(counts);
+              },
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               child: const Text('ゲーム開始', style: TextStyle(fontSize: 18)),
             ),
@@ -305,9 +166,9 @@ class _GmToolScreenState extends State<GmToolScreen> {
     );
   }
 
-  Widget _buildPlayingView() {
-    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
-    final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
+  Widget _buildPlayingView(BuildContext context, GmToolScreenState controller) {
+    final players = List<Map<String, dynamic>>.from(controller.roomData!['players'] ?? []);
+    final assignments = List<Map<String, dynamic>>.from(controller.roomData!['assignments'] ?? []);
 
     if (players.isEmpty) return const Center(child: Text('プレイヤー情報がありません。'));
 
@@ -319,11 +180,7 @@ class _GmToolScreenState extends State<GmToolScreen> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    final survivorCount = players.where((p) => p['is_dead'] != true).length;
-                    _roomService.broadcastSurvivorCount(_roomCode!, survivorCount);
-                    _showMessage('生存者数 ($survivorCount 人) を全員に告知しました。');
-                  },
+                  onPressed: () => ref.read(gmToolScreenControllerProvider.notifier).broadcastSurvivorCount(),
                   icon: const Icon(Icons.campaign),
                   label: const Text('生存者数を告知'),
                 ),
@@ -358,29 +215,14 @@ class _GmToolScreenState extends State<GmToolScreen> {
                     child: ListTile(
                       leading: CircleAvatar(child: Text((index + 1).toString())),
                       title: Text(player['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('役職: ${role['role_name'] ?? '不明'}', style: const TextStyle(fontSize: 15)),
-                            const SizedBox(height: 2),
-                            Text('陣営: ${role['faction'] ?? '不明'}', style: const TextStyle(fontSize: 15)),
-                            const SizedBox(height: 2),
-                            Text('能力: ${role['ability'] ?? 'なし'}', style: const TextStyle(fontSize: 15)),
-                          ],
-                        ),
-                      ),
+                      subtitle: Text('役職: ${role['role_name'] ?? '不明'}'),
                       trailing: ElevatedButton(
-                        onPressed: () {
-                          _roomService.setPlayerDeadStatus(_roomCode!, player['id'], !isDead);
-                        },
+                        onPressed: () => ref.read(gmToolScreenControllerProvider.notifier).setPlayerDeadStatus(player['id'], !isDead),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isDead ? Colors.blue : Colors.red,
                         ),
                         child: Text(isDead ? '生存させる' : '死亡させる'),
                       ),
-                      isThreeLine: true,
                     ),
                   ),
                 ),
@@ -404,10 +246,144 @@ class _GmToolScreenState extends State<GmToolScreen> {
     );
   }
 
+  Widget _buildRoomCodeCard(BuildContext context, String roomCode) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text('部屋番号', style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 8),
+            SelectableText(roomCode, style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, letterSpacing: 4), textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.copy), label: const Text('コピー'),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: roomCode));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('部屋番号をコピーしました！'), backgroundColor: Colors.green),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoleCountInput(String label, TextEditingController controller) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: <Widget>[
+          SizedBox(width: 100, child: Text(label)),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAiAdvice() async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        title: Text('AIがアドバイスを生成中...'),
+        content: Center(child: CircularProgressIndicator()),
+      ),
+    );
+
+    try {
+      final advice = await ref.read(gmToolScreenControllerProvider.notifier).getAiAdvice();
+
+      // Pop loading dialog
+      if (mounted) Navigator.of(context).pop();
+
+      // Show result dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('AI進行アシスタント'),
+          content: SingleChildScrollView(child: Text(advice)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Pop loading dialog on error
+      if (mounted) Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AIアドバイスの生成に失敗しました: ${e.toString()}'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   String? _selectedWinningFaction;
   final TextEditingController _victoryReasonController = TextEditingController();
 
   Future<void> _showEndGameDialog() async {
+  Widget _buildFinishedView(Map<String, dynamic> roomData) {
+    final winningFaction = roomData['winning_faction'] ?? '不明';
+    final victoryReason = roomData['victory_reason'] ?? '理由がありません';
+    final assignments = List<Map<String, dynamic>>.from(roomData['assignments'] ?? []);
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('ゲーム終了', style: Theme.of(context).textTheme.headlineMedium, textAlign: TextAlign.center),
+          const SizedBox(height: 24.0),
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Text('勝利陣営: $winningFaction', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8.0),
+                  Text(victoryReason, style: Theme.of(context).textTheme.bodyMedium),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24.0),
+          Text('役職割り当て結果:', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+          const SizedBox(height: 16.0),
+          Expanded(
+            child: ListView.builder(
+              itemCount: assignments.length,
+              itemBuilder: (context, index) {
+                final assignment = assignments[index];
+                final playerName = assignment['player_name'] ?? '不明';
+                final roleName = assignment['role_name'] ?? '不明';
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: ListTile(
+                    title: Text(playerName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    trailing: Text(roleName),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
     _selectedWinningFaction = null; // Reset for new dialog
     _victoryReasonController.clear();
 
@@ -463,11 +439,16 @@ class _GmToolScreenState extends State<GmToolScreen> {
               ElevatedButton(
                 onPressed: () async {
                   if (_selectedWinningFaction == null || _victoryReasonController.text.isEmpty) {
-                    _showMessage('勝利陣営と勝因をすべて入力してください。', isError: true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('勝利陣営と勝因をすべて入力してください。'), backgroundColor: Colors.red),
+                    );
                     return;
                   }
                   Navigator.of(context).pop(); // Close dialog
-                  await _endGame();
+                  await ref.read(gmToolScreenControllerProvider.notifier).endGame(
+                        _selectedWinningFaction!,
+                        _victoryReasonController.text,
+                      );
                 },
                 child: const Text('ゲームを終了する'),
               ),
@@ -475,132 +456,6 @@ class _GmToolScreenState extends State<GmToolScreen> {
           );
         },
       ),
-    );
-  }
-
-  Future<void> _endGame() async {
-    if (_roomCode == null || _selectedWinningFaction == null) return;
-    setState(() => _isLoading = true);
-    try {
-      await _roomService.endGame(
-        _roomCode!,
-        _selectedWinningFaction!,
-        _victoryReasonController.text,
-      );
-      _showMessage('ゲームを終了しました。');
-    } catch (e) {
-      _showMessage('ゲーム終了処理に失敗しました: ${e.toString()}', isError: true);
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Widget _buildFinishedView() {
-    final winningFaction = _roomData!['winning_faction'] ?? '不明';
-    final victoryReason = _roomData!['victory_reason'] ?? 'なし';
-    final players = List<Map<String, dynamic>>.from(_roomData!['players'] ?? []);
-    final assignments = List<Map<String, dynamic>>.from(_roomData!['assignments'] ?? []);
-
-    return Column(
-      children: [
-        Card(
-          margin: const EdgeInsets.all(16),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ゲーム終了！', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                Text('勝利陣営: $winningFaction', style: const TextStyle(fontSize: 18)),
-                const SizedBox(height: 5),
-                Text('勝因: $victoryReason', style: const TextStyle(fontSize: 16)),
-              ],
-            ),
-          ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: Text('全プレイヤーの最終情報:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: players.length,
-            itemBuilder: (context, index) {
-              final player = players[index];
-              final assignment = assignments.firstWhere((a) => a['name'] == player['name'], orElse: () => {});
-              final role = Map<String, dynamic>.from(assignment['role'] ?? {});
-              final bool isDead = player['is_dead'] ?? false;
-
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: ListTile(
-                  leading: CircleAvatar(child: Text((index + 1).toString())),
-                  title: Text(player['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SelectableText('役職: ${role['role_name'] ?? '不明'}'),
-                      SelectableText('陣営: ${role['faction'] ?? '不明'}'),
-                    ],
-                  ),
-                  trailing: Text(isDead ? '死亡' : '生存', style: TextStyle(color: isDead ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Helper Widgets & Methods
-  Widget _buildRoomCodeCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Text('部屋番号', style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 8),
-            SelectableText(_roomCode!, style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, letterSpacing: 4), textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.copy), label: const Text('コピー'),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: _roomCode!));
-                _showMessage('部屋番号をコピーしました！');
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoleCountInput(String label, TextEditingController controller) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        children: <Widget>[
-          SizedBox(width: 100, child: Text(label)),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showMessage(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: isError ? Colors.red : Colors.green),
     );
   }
 }
